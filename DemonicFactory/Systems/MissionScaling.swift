@@ -87,7 +87,12 @@ enum MissionScaling {
             return Int((Double(base) * bloodCrystalPercentTable[level - 1]).rounded(.up))
         }
         let multiplier = 1.0 + 0.20 * Double((level - 1) / 2)
-        return Int((Double(base) * multiplier).rounded(.up))
+        // The raw formula dips below the level-10 percentage for several levels
+        // (integer floor division stalls at each odd level) before catching back
+        // up — a mission stage should never pay less than the previous one, so
+        // floor at the last table percentage instead of letting it regress.
+        let flooredMultiplier = max(multiplier, bloodCrystalPercentTable[bloodCrystalPercentTable.count - 1])
+        return Int((Double(base) * flooredMultiplier).rounded(.up))
     }
 
     // MARK: - Title

@@ -116,6 +116,7 @@ struct MissionSnapshot: Codable {
                 progress = 0
                 isCompleted = false
                 isClaimed = false
+                continuousSeconds = 0
             }
         }
     }
