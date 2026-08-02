@@ -28,6 +28,7 @@ final class GameState {
 
     var interaction: InteractionMode = .idle
     var selectedBuildingID: UUID?
+    var selectedBeltID: UUID?
 
     var elapsedPlayTime: TimeInterval = 0
     var lastSavedAt: Date = .now
@@ -45,10 +46,17 @@ final class GameState {
     func building(id: UUID) -> FactoryBuilding? { buildings.first { $0.id == id } }
     func building(at point: GridPoint) -> FactoryBuilding? { buildings.first { $0.gridPosition == point } }
     func hasBelt(at point: GridPoint) -> Bool { beltLines.contains { $0.path.contains(point) } }
+    func belt(id: UUID) -> ConveyorLine? { beltLines.first { $0.id == id } }
+    func belt(at point: GridPoint) -> ConveyorLine? { beltLines.first { $0.path.contains(point) } }
 
     var selectedBuilding: FactoryBuilding? {
         guard let id = selectedBuildingID else { return nil }
         return building(id: id)
+    }
+
+    var selectedBelt: ConveyorLine? {
+        guard let id = selectedBeltID else { return nil }
+        return belt(id: id)
     }
 
     func resourceAmount(_ type: ResourceType) -> Int { resources[type, default: 0] }

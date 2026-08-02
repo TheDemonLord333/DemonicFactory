@@ -102,6 +102,7 @@ final class FactoryScene: SKScene {
             seen.insert(line.id)
             let node = beltNodes[line.id] ?? makeBeltNode(for: line)
             node.sync(items: line.itemsInTransit, pathLength: line.length, isJammed: line.isJammed)
+            node.setSelected(engine.state.selectedBeltID == line.id)
         }
         for (id, node) in beltNodes where !seen.contains(id) {
             node.removeFromParent()
@@ -195,6 +196,8 @@ final class FactoryScene: SKScene {
             if !hasMovedSignificantly {
                 if let building = engine.state.building(at: gridPoint) {
                     engine.selectBuilding(id: building.id)
+                } else if let belt = engine.state.belt(at: gridPoint) {
+                    engine.selectBelt(id: belt.id)
                 } else {
                     engine.deselect()
                 }

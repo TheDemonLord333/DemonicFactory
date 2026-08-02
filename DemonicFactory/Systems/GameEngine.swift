@@ -71,11 +71,13 @@ final class GameEngine {
 
     func selectBuilding(id: UUID) {
         state.selectedBuildingID = id
+        state.selectedBeltID = nil
         state.interaction = .selected(id)
     }
 
     func deselect() {
         state.selectedBuildingID = nil
+        state.selectedBeltID = nil
         if case .selected = state.interaction { state.interaction = .idle }
     }
 
@@ -127,6 +129,21 @@ final class GameEngine {
         let line = ConveyorLine(path: path, sourceBuildingID: source?.id, destinationBuildingID: destination?.id)
         state.beltLines.append(line)
         return true
+    }
+
+    func selectBelt(id: UUID) {
+        state.selectedBeltID = id
+        state.selectedBuildingID = nil
+        if case .selected = state.interaction { state.interaction = .idle }
+    }
+
+    /// Refunds half the original placement cost, mirroring sellSelectedBuilding.
+    func removeSelectedBelt() {
+        guard let belt = state.selectedBelt else { return }
+        let refund = Int(Double(belt.path.count * 5) * 0.5)
+        state.addResource(.hellCoin, amount: refund)
+        state.beltLines.removeAll { $0.id == belt.id }
+        state.selectedBeltID = nil
     }
 
     // MARK: - Missions

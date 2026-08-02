@@ -14,6 +14,7 @@ final class BeltNode: SKNode {
     private let path: [GridPoint]
     private var itemNodes: [UUID: ResourceItemNode] = [:]
     private let jamIndicator: SKShapeNode
+    private var segmentNodes: [SKShapeNode] = []
 
     init(line: ConveyorLine) {
         lineID = line.id
@@ -48,6 +49,7 @@ final class BeltNode: SKNode {
             segment.position = GridMath.scenePosition(for: point)
             segment.zPosition = 1
             addChild(segment)
+            segmentNodes.append(segment)
 
             if index < path.count - 1 {
                 let direction = BeltDirection.from(point, to: path[index + 1])
@@ -58,6 +60,13 @@ final class BeltNode: SKNode {
                 arrow.zPosition = 2
                 addChild(arrow)
             }
+        }
+    }
+
+    func setSelected(_ selected: Bool) {
+        for segment in segmentNodes {
+            segment.strokeColor = selected ? .white : Palette.violetUI.withAlphaComponent(0.6)
+            segment.lineWidth = selected ? 2.5 : 1.5
         }
     }
 

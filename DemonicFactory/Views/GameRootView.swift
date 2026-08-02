@@ -32,6 +32,10 @@ struct GameRootView: View {
                     BuildingInfoPanel(viewModel: viewModel, info: info)
                 }
 
+                if let beltInfo = viewModel.selectedBelt {
+                    BeltInfoPanel(viewModel: viewModel, info: beltInfo)
+                }
+
                 if let index = viewModel.tutorialStepIndex, index < viewModel.tutorialSteps.count {
                     TutorialOverlay(
                         viewModel: viewModel,

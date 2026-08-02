@@ -39,6 +39,15 @@ struct SelectedBuildingInfo: Identifiable {
     let sellRefund: Int
 }
 
+struct SelectedBeltInfo: Identifiable {
+    let id: UUID
+    let tileCount: Int
+    let itemCount: Int
+    let isJammed: Bool
+    let isFunctional: Bool
+    let removeRefund: Int
+}
+
 enum BottomBarTab: String, CaseIterable, Identifiable {
     case build, machines, belts, defense, creatures, missions
     var id: String { rawValue }
@@ -89,6 +98,7 @@ final class GameViewModel: ObservableObject {
     // Panels
     @Published var activeTab: BottomBarTab?
     @Published var selectedBuilding: SelectedBuildingInfo?
+    @Published var selectedBelt: SelectedBeltInfo?
     @Published var missions: [Mission] = []
     @Published var creatures: [Creature] = []
     @Published var efficiencyIssues: [String] = []
@@ -173,6 +183,19 @@ final class GameViewModel: ObservableObject {
         interaction = state.interaction
         isDrawingBelt = (state.interaction == .drawingBelt)
         selectedBuilding = makeSelectedBuildingInfo(state: state)
+        selectedBelt = makeSelectedBeltInfo(state: state)
+    }
+
+    private func makeSelectedBeltInfo(state: GameState) -> SelectedBeltInfo? {
+        guard let belt = state.selectedBelt else { return nil }
+        return SelectedBeltInfo(
+            id: belt.id,
+            tileCount: belt.path.count,
+            itemCount: belt.itemsInTransit.count,
+            isJammed: belt.isJammed,
+            isFunctional: belt.isFunctional,
+            removeRefund: Int(Double(belt.path.count * 5) * 0.5)
+        )
     }
 
     private func makeSelectedBuildingInfo(state: GameState) -> SelectedBuildingInfo? {
@@ -225,6 +248,16 @@ final class GameViewModel: ObservableObject {
 
     func deselectBuilding() {
         engine.deselect()
+        refresh()
+    }
+
+    func deselectBelt() {
+        engine.deselect()
+        refresh()
+    }
+
+    func removeSelectedBelt() {
+        engine.removeSelectedBelt()
         refresh()
     }
 
