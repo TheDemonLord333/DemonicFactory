@@ -6,80 +6,99 @@
 import Foundation
 
 enum MissionSystem {
-    /// Efficiency threshold (%) the `.keepEfficiencyAbove` starter mission tracks.
+    /// Efficiency threshold (%) the `.keepEfficiencyAbove` mission tracks.
     static let efficiencyMissionThreshold: Double = 80
 
     static func starterMissions() -> [Mission] {
         [
-            Mission(
-                title: "Produziere 50 Seelenfragmente",
-                goalType: .produceResource,
-                targetResource: .soulFragment,
-                targetAmount: 50,
-                rewardHellCoin: 100
-            ),
-            Mission(
-                title: "Stelle 10 verdichtete Seelen her",
-                goalType: .produceResource,
-                targetResource: .compressedSoul,
-                targetAmount: 10,
-                rewardHellCoin: 150
-            ),
-            Mission(
-                title: "Baue 5 Maschinen",
-                goalType: .buildBuildings,
-                targetAmount: 5,
-                rewardHellCoin: 120,
-                rewardBloodCrystal: 3
-            ),
-            Mission(
-                title: "Erreiche eine Energieproduktion von 2",
-                goalType: .reachEnergyProduction,
-                targetAmount: 2,
-                rewardHellCoin: 200
-            ),
-            Mission(
-                title: "Beschwöre 3 Kreaturen",
-                goalType: .summonCreatures,
-                targetAmount: 3,
-                rewardHellCoin: 250,
-                rewardBloodCrystal: 5
-            ),
-            Mission(
-                title: "Halte die Effizienz 2 Minuten über 80%",
-                goalType: .keepEfficiencyAbove,
-                targetAmount: 120,
-                rewardHellCoin: 300,
-                rewardBloodCrystal: 10
-            )
+            Mission(goalType: .produceResource, targetResource: .soulFragment),
+            Mission(goalType: .produceResource, targetResource: .compressedSoul),
+            Mission(goalType: .buildBuildings),
+            Mission(goalType: .reachEnergyProduction),
+            Mission(goalType: .summonCreatures),
+            Mission(goalType: .keepEfficiencyAbove)
         ]
     }
 
-    static func evaluate(state: GameState, deltaTime: TimeInterval) {
-        for mission in state.missions where !mission.isCompleted {
-            switch mission.goalType {
-            case .produceResource:
-                if let resource = mission.targetResource {
-                    mission.progress = state.lifetimeProduced[resource, default: 0]
-                }
-            case .buildBuildings:
-                mission.progress = state.lifetimeBuildingsBuilt
-            case .summonCreatures:
-                mission.progress = state.lifetimeCreaturesSummoned
-            case .reachEnergyProduction:
-                mission.progress = Int(state.energy.production)
-            case .keepEfficiencyAbove:
-                if state.efficiency >= efficiencyMissionThreshold {
-                    mission.continuousSeconds += deltaTime
-                } else {
-                    mission.continuousSeconds = 0
-                }
-                mission.progress = Int(mission.continuousSeconds)
-            }
+    // MARK: - Progress hooks (the central, reusable ways a mission can move)
 
-            if mission.progress >= mission.targetAmount {
-                mission.isCompleted = true
-            }
+    private static func applyProgress(_ newProgress: Int, to mission: Mission) {
+        mission.progress = min(mission.targetAmount, max(0, newProgress))
+        if mission.progress >= mission.targetAmount {
+            mission.isCompleted = true
         }
+    }
+
+    /// Adds incremental progress to every active mission of this type —
+    /// available for event-driven callers; the built-in missions below use
+    /// `updateThresholdMission` instead since they already track a lifetime
+    /// counter in GameState.
+    static func addProgress(to goalType: MissionGoalType, targetResource: ResourceType? = nil, amount: Int, in state: GameState) {
+        guard amount != 0 else { return }
+        for mission in state.missions
+        where mission.goalType == goalType && mission.targetResource == targetResource && !mission.isCompleted {
+            applyProgress(mission.progress + amount, to: mission)
+        }
+    }
+
+    /// Syncs progress to an absolute external value (e.g. a lifetime counter
+    /// or the current energy production rate) rather than accumulating deltas.
+    /// Progress never regresses — once a value has been reached, it sticks,
+    /// even if the underlying value dips again before the mission completes.
+    static func updateThresholdMission(goalType: MissionGoalType, targetResource: ResourceType? = nil, currentValue: Int, in state: GameState) {
+        for mission in state.missions
+        where mission.goalType == goalType && mission.targetResource == targetResource && !mission.isCompleted {
+            applyProgress(max(mission.progress, currentValue), to: mission)
+        }
+    }
+
+    /// Efficiency missions pause (not reset) below the threshold and resume
+    /// counting the moment efficiency recovers.
+    static func updateEfficiencyMission(currentEfficiency: Double, elapsedTime: TimeInterval, in state: GameState) {
+        for mission in state.missions where mission.goalType == .keepEfficiencyAbove && !mission.isCompleted {
+            if currentEfficiency >= efficiencyMissionThreshold {
+                mission.continuousSeconds += elapsedTime
+            }
+            applyProgress(Int(mission.continuousSeconds), to: mission)
+        }
+    }
+
+    static func evaluate(state: GameState, deltaTime: TimeInterval) {
+        updateThresholdMission(goalType: .produceResource, targetResource: .soulFragment, currentValue: state.lifetimeProduced[.soulFragment, default: 0], in: state)
+        updateThresholdMission(goalType: .produceResource, targetResource: .compressedSoul, currentValue: state.lifetimeProduced[.compressedSoul, default: 0], in: state)
+        updateThresholdMission(goalType: .buildBuildings, currentValue: state.lifetimeBuildingsBuilt, in: state)
+        updateThresholdMission(goalType: .summonCreatures, currentValue: state.lifetimeCreaturesSummoned, in: state)
+        updateThresholdMission(goalType: .reachEnergyProduction, currentValue: Int(state.energy.production), in: state)
+        updateEfficiencyMission(currentEfficiency: state.efficiency, elapsedTime: deltaTime, in: state)
+    }
+
+    // MARK: - Claiming
+
+    /// Pays out the mission's current reward and immediately advances it to
+    /// the next level (new target, new rewards, progress reset to 0, active
+    /// again). Returns nil if the mission wasn't actually claimable.
+    ///
+    /// This is what keeps a rapid double-tap on "Abholen" from paying out
+    /// twice: `isClaimed` flips to true as the very first mutation, before
+    /// anything else happens, and every call re-checks it — since Swift/UIKit
+    /// dispatches are single-threaded on the main actor, a second call can
+    /// never interleave inside the first.
+    @discardableResult
+    static func claimReward(_ mission: Mission) -> (gold: Int, bloodCrystal: Int)? {
+        guard mission.isCompleted, !mission.isClaimed else { return nil }
+        let payout = (gold: mission.rewardHellCoin, bloodCrystal: mission.rewardBloodCrystal)
+        mission.isClaimed = true
+
+        mission.level += 1
+        mission.completedStages += 1
+        mission.targetAmount = MissionScaling.target(goalType: mission.goalType, targetResource: mission.targetResource, level: mission.level)
+        mission.rewardHellCoin = MissionScaling.goldReward(goalType: mission.goalType, targetResource: mission.targetResource, level: mission.level)
+        mission.rewardBloodCrystal = MissionScaling.bloodCrystalReward(goalType: mission.goalType, targetResource: mission.targetResource, level: mission.level)
+        mission.progress = 0
+        mission.continuousSeconds = 0
+        mission.isCompleted = false
+        mission.isClaimed = false
+
+        return payout
     }
 }

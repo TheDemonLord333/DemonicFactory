@@ -149,14 +149,12 @@ final class GameEngine {
     // MARK: - Missions
 
     func claimMission(id: UUID) {
-        guard let mission = state.missions.first(where: { $0.id == id }),
-              mission.isCompleted, !mission.isClaimed
-        else { return }
-        state.addResource(.hellCoin, amount: mission.rewardHellCoin)
-        if mission.rewardBloodCrystal > 0 {
-            state.addResource(.bloodCrystal, amount: mission.rewardBloodCrystal)
+        guard let mission = state.missions.first(where: { $0.id == id }) else { return }
+        guard let payout = MissionSystem.claimReward(mission) else { return }
+        state.addResource(.hellCoin, amount: payout.gold)
+        if payout.bloodCrystal > 0 {
+            state.addResource(.bloodCrystal, amount: payout.bloodCrystal)
         }
-        mission.isClaimed = true
     }
 
     // MARK: - Persistence

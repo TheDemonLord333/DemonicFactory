@@ -46,9 +46,9 @@ struct CreatureSnapshot: Codable {
 
 struct MissionSnapshot: Codable {
     var id: UUID
-    var title: String
     var goalType: MissionGoalType
     var targetResource: ResourceType?
+    var level: Int
     var targetAmount: Int
     var progress: Int
     var rewardHellCoin: Int
@@ -56,6 +56,69 @@ struct MissionSnapshot: Codable {
     var isCompleted: Bool
     var isClaimed: Bool
     var continuousSeconds: Double
+    var completedStages: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case id, goalType, targetResource, level, targetAmount, progress
+        case rewardHellCoin, rewardBloodCrystal, isCompleted, isClaimed
+        case continuousSeconds, completedStages
+    }
+
+    init(
+        id: UUID, goalType: MissionGoalType, targetResource: ResourceType?, level: Int,
+        targetAmount: Int, progress: Int, rewardHellCoin: Int, rewardBloodCrystal: Int,
+        isCompleted: Bool, isClaimed: Bool, continuousSeconds: Double, completedStages: Int
+    ) {
+        self.id = id
+        self.goalType = goalType
+        self.targetResource = targetResource
+        self.level = level
+        self.targetAmount = targetAmount
+        self.progress = progress
+        self.rewardHellCoin = rewardHellCoin
+        self.rewardBloodCrystal = rewardBloodCrystal
+        self.isCompleted = isCompleted
+        self.isClaimed = isClaimed
+        self.continuousSeconds = continuousSeconds
+        self.completedStages = completedStages
+    }
+
+    /// Migrates saves from before the leveling/rank system: missions written
+    /// by the old code have no `level` key at all. An already-claimed mission
+    /// already paid out its one-time reward under the old system, so it picks
+    /// up at level 2, fresh and active; anything else — including a
+    /// completed-but-not-yet-claimed mission — stays at level 1 with its
+    /// progress and claimable state untouched, exactly as the spec requires.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        goalType = try container.decode(MissionGoalType.self, forKey: .goalType)
+        targetResource = try container.decodeIfPresent(ResourceType.self, forKey: .targetResource)
+        progress = try container.decode(Int.self, forKey: .progress)
+        isCompleted = try container.decode(Bool.self, forKey: .isCompleted)
+        isClaimed = try container.decode(Bool.self, forKey: .isClaimed)
+        continuousSeconds = try container.decodeIfPresent(Double.self, forKey: .continuousSeconds) ?? 0
+
+        if let decodedLevel = try container.decodeIfPresent(Int.self, forKey: .level) {
+            level = decodedLevel
+            targetAmount = try container.decode(Int.self, forKey: .targetAmount)
+            rewardHellCoin = try container.decode(Int.self, forKey: .rewardHellCoin)
+            rewardBloodCrystal = try container.decode(Int.self, forKey: .rewardBloodCrystal)
+            completedStages = try container.decodeIfPresent(Int.self, forKey: .completedStages) ?? 0
+        } else {
+            let wasClaimed = isClaimed
+            level = wasClaimed ? 2 : 1
+            completedStages = wasClaimed ? 1 : 0
+            targetAmount = MissionScaling.target(goalType: goalType, targetResource: targetResource, level: level)
+            rewardHellCoin = MissionScaling.goldReward(goalType: goalType, targetResource: targetResource, level: level)
+            rewardBloodCrystal = MissionScaling.bloodCrystalReward(goalType: goalType, targetResource: targetResource, level: level)
+            if wasClaimed {
+                progress = 0
+                isCompleted = false
+                isClaimed = false
+            }
+        }
+    }
 }
 
 struct GameSnapshot: Codable {
@@ -104,10 +167,11 @@ struct GameSnapshot: Codable {
 
         missions = state.missions.map {
             MissionSnapshot(
-                id: $0.id, title: $0.title, goalType: $0.goalType, targetResource: $0.targetResource,
+                id: $0.id, goalType: $0.goalType, targetResource: $0.targetResource, level: $0.level,
                 targetAmount: $0.targetAmount, progress: $0.progress,
                 rewardHellCoin: $0.rewardHellCoin, rewardBloodCrystal: $0.rewardBloodCrystal,
-                isCompleted: $0.isCompleted, isClaimed: $0.isClaimed, continuousSeconds: $0.continuousSeconds
+                isCompleted: $0.isCompleted, isClaimed: $0.isClaimed, continuousSeconds: $0.continuousSeconds,
+                completedStages: $0.completedStages
             )
         }
 
@@ -161,14 +225,15 @@ struct GameSnapshot: Codable {
 
         state.missions = missions.map { snapshot in
             let mission = Mission(
-                id: snapshot.id, title: snapshot.title, goalType: snapshot.goalType,
-                targetResource: snapshot.targetResource, targetAmount: snapshot.targetAmount,
+                id: snapshot.id, goalType: snapshot.goalType, targetResource: snapshot.targetResource,
+                level: snapshot.level, targetAmount: snapshot.targetAmount,
                 rewardHellCoin: snapshot.rewardHellCoin, rewardBloodCrystal: snapshot.rewardBloodCrystal
             )
             mission.progress = snapshot.progress
             mission.isCompleted = snapshot.isCompleted
             mission.isClaimed = snapshot.isClaimed
             mission.continuousSeconds = snapshot.continuousSeconds
+            mission.completedStages = snapshot.completedStages
             return mission
         }
 
