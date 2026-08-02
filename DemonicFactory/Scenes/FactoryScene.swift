@@ -415,8 +415,21 @@ final class FactoryScene: SKScene {
         let point = GridMath.gridPoint(for: location)
         if let building = engine.state.building(at: point) {
             beginLiveDrag(buildingID: building.id, at: location)
-        } else if engine.state.grid.isBuildable(at: point) {
-            onRequestBuildMenu?(point)
+            return
+        }
+
+        // An empty-tile long-press should only open the build menu when
+        // nothing else is already in progress — otherwise it would hijack an
+        // active drag, belt draw, or placement (all of which route their own
+        // long-press-driven touch through here too).
+        guard draggedBuildingID == nil else { return }
+        switch engine.state.interaction {
+        case .idle, .selected:
+            if engine.state.grid.isBuildable(at: point) {
+                onRequestBuildMenu?(point)
+            }
+        default:
+            break
         }
     }
 

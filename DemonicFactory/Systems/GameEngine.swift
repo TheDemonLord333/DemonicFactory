@@ -80,6 +80,13 @@ final class GameEngine {
     }
 
     func deselect() {
+        // Backing out of move mode via the info panel's own close button (not
+        // just the interaction banner's) must also release isBeingMoved —
+        // otherwise the building stays silently paused and picks back up into
+        // a drag on the next touch, since selectedBuildingID no longer gates that.
+        if case .movingBuilding(let id) = state.interaction {
+            cancelMovingBuilding(id: id)
+        }
         state.selectedBuildingID = nil
         state.selectedBeltID = nil
         if case .selected = state.interaction { state.interaction = .idle }
