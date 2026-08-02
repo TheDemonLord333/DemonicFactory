@@ -51,13 +51,17 @@ final class GameEngine {
     }
 
     func cancelInteraction() {
+        if case .movingBuilding(let id) = state.interaction {
+            cancelMovingBuilding(id: id)
+            return
+        }
         state.interaction = .idle
     }
 
     @discardableResult
     func tryPlaceBuilding(at point: GridPoint) -> Bool {
         guard case .placingBuilding(let type) = state.interaction else { return false }
-        guard state.grid.isBuildable(at: point), state.building(at: point) == nil, !state.hasBelt(at: point) else { return false }
+        guard state.isAreaFree(origin: point, footprint: type.footprint) else { return false }
         guard state.spendResource(.hellCoin, amount: type.baseHellCoinCost) else { return false }
 
         let building = FactoryBuilding(type: type, gridPosition: point)
@@ -100,16 +104,47 @@ final class GameEngine {
 
     func beginMovingSelected() {
         guard let id = state.selectedBuildingID else { return }
+        beginMovingBuilding(id: id)
+    }
+
+    /// Enters drag-to-move for a building: pauses its production/output and
+    /// marks it as the active move target. Safe to call again for the same
+    /// building (e.g. long-press after the info panel's "Verschieben" button
+    /// already primed it) — it just re-confirms the state.
+    func beginMovingBuilding(id: UUID) {
+        guard let building = state.building(id: id) else { return }
+        building.isBeingMoved = true
+        state.selectedBuildingID = id
+        state.selectedBeltID = nil
         state.interaction = .movingBuilding(id)
     }
 
+    /// Validates and applies the drop position as one atomic step: on success
+    /// the building's new position is saved and it resumes normal operation;
+    /// on failure nothing about the building changes at all. Either way
+    /// `isBeingMoved` clears and the building becomes selected again.
     @discardableResult
-    func moveSelectedBuilding(to point: GridPoint) -> Bool {
-        guard case .movingBuilding(let id) = state.interaction, let building = state.building(id: id) else { return false }
-        guard state.grid.isBuildable(at: point), state.building(at: point) == nil, !state.hasBelt(at: point) else { return false }
+    func commitMove(buildingID: UUID, to point: GridPoint) -> Bool {
+        guard let building = state.building(id: buildingID) else { return false }
+        defer {
+            building.isBeingMoved = false
+            state.interaction = .selected(buildingID)
+        }
+        guard state.isAreaFree(origin: point, footprint: building.type.footprint, ignoring: buildingID) else {
+            return false
+        }
         building.gridPosition = point
-        state.interaction = .selected(id)
         return true
+    }
+
+    /// Backs out of move mode without touching the building's position.
+    func cancelMovingBuilding(id: UUID) {
+        guard let building = state.building(id: id) else {
+            state.interaction = .idle
+            return
+        }
+        building.isBeingMoved = false
+        state.interaction = .selected(id)
     }
 
     // MARK: - Belts
@@ -144,6 +179,16 @@ final class GameEngine {
         state.addResource(.hellCoin, amount: refund)
         state.beltLines.removeAll { $0.id == belt.id }
         state.selectedBeltID = nil
+    }
+
+    /// Upgrades the whole drawn line at once (segment-by-segment upgrades are
+    /// a natural follow-up once belts stop being one-line-one-speed).
+    @discardableResult
+    func upgradeSelectedBelt() -> Bool {
+        guard let belt = state.selectedBelt, belt.canUpgrade else { return false }
+        guard state.spendResource(.hellCoin, amount: belt.upgradeCost()) else { return false }
+        belt.level += 1
+        return true
     }
 
     // MARK: - Missions

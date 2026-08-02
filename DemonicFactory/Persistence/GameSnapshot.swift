@@ -31,8 +31,34 @@ struct BeltLineSnapshot: Codable {
     var path: [GridPoint]
     var sourceBuildingID: UUID?
     var destinationBuildingID: UUID?
-    var speed: Double
+    var level: Int
     var items: [BeltItemSnapshot]
+
+    private enum CodingKeys: String, CodingKey {
+        case id, path, sourceBuildingID, destinationBuildingID, level, items
+    }
+
+    init(id: UUID, path: [GridPoint], sourceBuildingID: UUID?, destinationBuildingID: UUID?, level: Int, items: [BeltItemSnapshot]) {
+        self.id = id
+        self.path = path
+        self.sourceBuildingID = sourceBuildingID
+        self.destinationBuildingID = destinationBuildingID
+        self.level = level
+        self.items = items
+    }
+
+    /// Old saves have a `speed` key but no `level` — belts from before the
+    /// leveling system just come back in at level 1 (a minor, non-destructive
+    /// rebalance: the old flat speed was 1.5 tiles/s, level 1's is 1.0).
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        path = try container.decode([GridPoint].self, forKey: .path)
+        sourceBuildingID = try container.decodeIfPresent(UUID.self, forKey: .sourceBuildingID)
+        destinationBuildingID = try container.decodeIfPresent(UUID.self, forKey: .destinationBuildingID)
+        items = try container.decodeIfPresent([BeltItemSnapshot].self, forKey: .items) ?? []
+        level = try container.decodeIfPresent(Int.self, forKey: .level) ?? 1
+    }
 }
 
 struct CreatureSnapshot: Codable {
@@ -157,7 +183,7 @@ struct GameSnapshot: Codable {
             BeltLineSnapshot(
                 id: line.id, path: line.path,
                 sourceBuildingID: line.sourceBuildingID, destinationBuildingID: line.destinationBuildingID,
-                speed: line.speed,
+                level: line.level,
                 items: line.itemsInTransit.map { BeltItemSnapshot(resource: $0.resource, distanceAlongPath: $0.distanceAlongPath) }
             )
         }
@@ -211,7 +237,7 @@ struct GameSnapshot: Codable {
             let line = ConveyorLine(
                 id: snapshot.id, path: snapshot.path,
                 sourceBuildingID: snapshot.sourceBuildingID, destinationBuildingID: snapshot.destinationBuildingID,
-                speed: snapshot.speed
+                level: snapshot.level
             )
             line.itemsInTransit = snapshot.items.map { BeltItem(resource: $0.resource, distanceAlongPath: $0.distanceAlongPath) }
             return line
@@ -249,5 +275,6 @@ struct GameSnapshot: Codable {
         state.lifetimeCreaturesSummoned = lifetimeCreaturesSummoned
         state.interaction = .idle
         state.selectedBuildingID = nil
+        state.selectedBeltID = nil
     }
 }

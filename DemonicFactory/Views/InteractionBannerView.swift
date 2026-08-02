@@ -41,7 +41,7 @@ struct InteractionBannerView: View {
         case .drawingBelt:
             return "Ziehe ein Förderband über die Felder"
         case .movingBuilding:
-            return "Tippe auf ein freies Feld, um die Maschine zu verschieben"
+            return "Ziehe die Maschine an eine neue Position"
         default:
             return nil
         }

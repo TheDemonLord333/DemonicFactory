@@ -44,10 +44,26 @@ final class GameState {
     }
 
     func building(id: UUID) -> FactoryBuilding? { buildings.first { $0.id == id } }
-    func building(at point: GridPoint) -> FactoryBuilding? { buildings.first { $0.gridPosition == point } }
+    func building(at point: GridPoint) -> FactoryBuilding? { buildings.first { $0.occupies(point) } }
     func hasBelt(at point: GridPoint) -> Bool { beltLines.contains { $0.path.contains(point) } }
     func belt(id: UUID) -> ConveyorLine? { beltLines.first { $0.id == id } }
     func belt(at point: GridPoint) -> ConveyorLine? { beltLines.first { $0.path.contains(point) } }
+
+    /// Whether every tile a building of this footprint would occupy, anchored
+    /// at `origin`, is buildable terrain, unoccupied, and belt-free. The one
+    /// shared check used by placement, drag-preview highlighting, and the
+    /// final move commit, so they can never disagree.
+    func isAreaFree(origin: GridPoint, footprint: (width: Int, height: Int), ignoring buildingID: UUID? = nil) -> Bool {
+        for dy in 0..<footprint.height {
+            for dx in 0..<footprint.width {
+                let point = origin.offset(dx: dx, dy: dy)
+                guard grid.isBuildable(at: point) else { return false }
+                if let occupant = building(at: point), occupant.id != buildingID { return false }
+                if hasBelt(at: point) { return false }
+            }
+        }
+        return true
+    }
 
     var selectedBuilding: FactoryBuilding? {
         guard let id = selectedBuildingID else { return nil }

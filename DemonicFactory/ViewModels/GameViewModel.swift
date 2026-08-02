@@ -37,15 +37,24 @@ struct SelectedBuildingInfo: Identifiable {
     let upgradeCost: Int
     let canUpgrade: Bool
     let sellRefund: Int
+    /// Non-nil only for Storage: per-resource stock breakdown + output pacing.
+    let storageBreakdown: [ResourceAmount]?
+    let storageOutputInterval: Double?
+    let bufferCapacity: Int
 }
 
 struct SelectedBeltInfo: Identifiable {
     let id: UUID
+    let level: Int
+    let maxLevel: Int
+    let speed: Double
     let tileCount: Int
     let itemCount: Int
     let isJammed: Bool
     let isFunctional: Bool
     let removeRefund: Int
+    let upgradeCost: Int
+    let canUpgrade: Bool
 }
 
 enum BottomBarTab: String, CaseIterable, Identifiable {
@@ -190,11 +199,16 @@ final class GameViewModel: ObservableObject {
         guard let belt = state.selectedBelt else { return nil }
         return SelectedBeltInfo(
             id: belt.id,
+            level: belt.level,
+            maxLevel: BuildingLevelConfig.maxBeltLevel,
+            speed: belt.speed,
             tileCount: belt.path.count,
             itemCount: belt.itemsInTransit.count,
             isJammed: belt.isJammed,
             isFunctional: belt.isFunctional,
-            removeRefund: Int(Double(belt.path.count * 5) * 0.5)
+            removeRefund: Int(Double(belt.path.count * 5) * 0.5),
+            upgradeCost: belt.upgradeCost(),
+            canUpgrade: belt.canUpgrade
         )
     }
 
@@ -220,7 +234,14 @@ final class GameViewModel: ObservableObject {
             energyDraw: recipe?.energyDraw(level: building.level) ?? 0,
             upgradeCost: building.upgradeCost(),
             canUpgrade: building.canUpgrade(),
-            sellRefund: Int(Double(building.type.baseHellCoinCost) * 0.5)
+            sellRefund: Int(Double(building.type.baseHellCoinCost) * 0.5),
+            storageBreakdown: building.type == .storage
+                ? building.inputBuffer.map { ResourceAmount(resource: $0.key, amount: $0.value) }.sorted { $0.amount > $1.amount }
+                : nil,
+            storageOutputInterval: building.type == .storage
+                ? BuildingLevelConfig.storageOutputInterval(level: building.level)
+                : nil,
+            bufferCapacity: building.bufferCapacity
         )
     }
 
@@ -258,6 +279,14 @@ final class GameViewModel: ObservableObject {
 
     func removeSelectedBelt() {
         engine.removeSelectedBelt()
+        refresh()
+    }
+
+    func upgradeSelectedBelt() {
+        if engine.upgradeSelectedBelt(), let id = engine.state.selectedBeltID {
+            scene.playBeltUpgradeFlash(lineID: id)
+            Haptics.impact(.medium)
+        }
         refresh()
     }
 

@@ -7,6 +7,12 @@
 //  handling turns gestures into GameEngine intents (place/select/move/draw belt);
 //  pinch and long-press arrive from GameSceneContainer's UIKit gesture recognizers.
 //
+//  Build/move mode drives two shared visuals: a per-tile grid highlight
+//  (TileNode.setHighlightState, computed from the same GameState.isAreaFree
+//  check GameEngine itself uses to validate a drop) and a footprint preview
+//  ghost that follows the touch — both read from one source of truth, so the
+//  displayed grid can never disagree with what actually happens on release.
+//
 
 import SpriteKit
 import UIKit
@@ -28,6 +34,14 @@ final class FactoryScene: SKScene {
     private var touchStartLocation: CGPoint?
     private var hasMovedSignificantly = false
     private var lastUpdateTime: TimeInterval?
+
+    // Drag-to-move state
+    private var draggedBuildingID: UUID?
+    private var dragOriginalScenePosition: CGPoint?
+
+    // Shared build/move-mode overlays
+    private var placementGhost: SKShapeNode?
+    private var highlightsActive = false
 
     init(engine: GameEngine, size: CGSize) {
         self.engine = engine
@@ -67,6 +81,7 @@ final class FactoryScene: SKScene {
         guard dt > 0 else { return }
         engine.tick(deltaTime: dt)
         syncNodes()
+        updateBuildHighlights()
     }
 
     private func syncNodes() {
@@ -82,6 +97,12 @@ final class FactoryScene: SKScene {
             let node = buildingNodes[building.id] ?? makeBuildingNode(for: building)
             node.update(with: building)
             node.setSelected(engine.state.selectedBuildingID == building.id)
+            node.applyZoomCompensation(cameraScale: cameraNode.xScale)
+            // While a node is being live-dragged, its position is driven by
+            // the touch, not by the model — don't snap it back mid-drag.
+            if building.id != draggedBuildingID {
+                node.position = GridMath.centerScenePosition(origin: building.gridPosition, footprint: node.footprint)
+            }
         }
         for (id, node) in buildingNodes where !seen.contains(id) {
             node.removeFromParent()
@@ -103,6 +124,7 @@ final class FactoryScene: SKScene {
             let node = beltNodes[line.id] ?? makeBeltNode(for: line)
             node.sync(items: line.itemsInTransit, pathLength: line.length, isJammed: line.isJammed)
             node.setSelected(engine.state.selectedBeltID == line.id)
+            node.setLevel(line.level)
         }
         for (id, node) in beltNodes where !seen.contains(id) {
             node.removeFromParent()
@@ -137,6 +159,76 @@ final class FactoryScene: SKScene {
         return node
     }
 
+    // MARK: - Build/move mode grid highlight
+
+    private func updateBuildHighlights() {
+        let interaction = engine.state.interaction
+        let active: Bool
+        switch interaction {
+        case .placingBuilding, .drawingBelt: active = true
+        case .movingBuilding: active = draggedBuildingID != nil
+        default: active = false
+        }
+
+        guard active else {
+            if highlightsActive {
+                for tile in tileNodes.values { tile.setHighlightState(.hidden) }
+                highlightsActive = false
+            }
+            return
+        }
+        highlightsActive = true
+
+        let ignoringID: UUID? = {
+            if case .movingBuilding(let id) = interaction { return id }
+            return nil
+        }()
+
+        for (point, tile) in tileNodes {
+            let occupant = engine.state.building(at: point)
+            let free = engine.state.grid.isBuildable(at: point)
+                && (occupant == nil || occupant?.id == ignoringID)
+                && !engine.state.hasBelt(at: point)
+            tile.setHighlightState(free ? .available : .occupied)
+        }
+
+        if let ignoringID, let building = engine.state.building(id: ignoringID) {
+            for point in building.occupiedTiles {
+                tileNodes[point]?.setHighlightState(.originalPosition)
+            }
+        }
+    }
+
+    // MARK: - Footprint preview ghost (build placement + drag-to-move)
+
+    private func updateFootprintGhost(origin: GridPoint, footprint: (width: Int, height: Int), ignoring buildingID: UUID? = nil) {
+        let valid = engine.state.isAreaFree(origin: origin, footprint: footprint, ignoring: buildingID)
+        placementGhost?.removeFromParent()
+
+        let size = CGSize(
+            width: GridMath.tileSize * CGFloat(footprint.width) - 4,
+            height: GridMath.tileSize * CGFloat(footprint.height) - 4
+        )
+        let ghost = SKShapeNode(rectOf: size, cornerRadius: 8)
+        ghost.position = GridMath.centerScenePosition(origin: origin, footprint: footprint)
+        ghost.zPosition = 25
+        ghost.lineWidth = 2.5
+        let color = valid ? Palette.soulGreenUI : Palette.demonRedUI
+        ghost.fillColor = color.withAlphaComponent(0.28)
+        ghost.strokeColor = color
+        ghost.alpha = 0.7
+        if !valid {
+            ghost.run(.repeatForever(.sequence([.fadeAlpha(to: 0.4, duration: 0.3), .fadeAlpha(to: 0.7, duration: 0.3)])))
+        }
+        addChild(ghost)
+        placementGhost = ghost
+    }
+
+    private func clearFootprintGhost() {
+        placementGhost?.removeFromParent()
+        placementGhost = nil
+    }
+
     // MARK: - Touch handling
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -145,10 +237,15 @@ final class FactoryScene: SKScene {
         touchStartLocation = location
         hasMovedSignificantly = false
 
-        if case .drawingBelt = engine.state.interaction {
+        switch engine.state.interaction {
+        case .drawingBelt:
             currentBeltPath = []
             appendBeltPoint(at: location)
-        } else {
+        case .placingBuilding(let type):
+            updateFootprintGhost(origin: GridMath.gridPoint(for: location), footprint: type.footprint)
+        case .movingBuilding(let id):
+            beginLiveDrag(buildingID: id, at: location)
+        default:
             lastPanLocation = location
         }
     }
@@ -161,14 +258,21 @@ final class FactoryScene: SKScene {
             hasMovedSignificantly = true
         }
 
-        if case .drawingBelt = engine.state.interaction {
+        switch engine.state.interaction {
+        case .drawingBelt:
             appendBeltPoint(at: location)
-        } else if let last = lastPanLocation {
-            let dx = last.x - location.x
-            let dy = last.y - location.y
-            cameraNode.position.x += dx
-            cameraNode.position.y += dy
-            lastPanLocation = location
+        case .placingBuilding(let type):
+            updateFootprintGhost(origin: GridMath.gridPoint(for: location), footprint: type.footprint)
+        case .movingBuilding:
+            if draggedBuildingID != nil { updateDragFollow(to: location) }
+        default:
+            if let last = lastPanLocation {
+                let dx = last.x - location.x
+                let dy = last.y - location.y
+                cameraNode.position.x += dx
+                cameraNode.position.y += dy
+                lastPanLocation = location
+            }
         }
     }
 
@@ -189,9 +293,7 @@ final class FactoryScene: SKScene {
             clearBeltPreview()
             currentBeltPath = []
         case .movingBuilding:
-            if !hasMovedSignificantly {
-                _ = engine.moveSelectedBuilding(to: gridPoint)
-            }
+            if draggedBuildingID != nil { endLiveDrag(at: location) }
         default:
             if !hasMovedSignificantly {
                 if let building = engine.state.building(at: gridPoint) {
@@ -205,6 +307,59 @@ final class FactoryScene: SKScene {
         }
         lastPanLocation = nil
         touchStartLocation = nil
+    }
+
+    // MARK: - Drag-and-drop moving
+
+    private func beginLiveDrag(buildingID: UUID, at location: CGPoint) {
+        guard draggedBuildingID == nil, let building = engine.state.building(id: buildingID) else { return }
+        if !building.isBeingMoved {
+            engine.beginMovingBuilding(id: buildingID)
+        }
+        draggedBuildingID = buildingID
+        if let node = buildingNodes[buildingID] {
+            dragOriginalScenePosition = node.position
+            node.beginDragVisual()
+        }
+        Haptics.impact(.light)
+        updateDragFollow(to: location)
+    }
+
+    private func updateDragFollow(to location: CGPoint) {
+        guard let id = draggedBuildingID, let node = buildingNodes[id], let building = engine.state.building(id: id) else { return }
+        node.updateDragVisual(to: location)
+        let origin = GridMath.gridPoint(for: location)
+        updateFootprintGhost(origin: origin, footprint: building.type.footprint, ignoring: id)
+    }
+
+    private func endLiveDrag(at location: CGPoint) {
+        guard let id = draggedBuildingID else { return }
+        let point = GridMath.gridPoint(for: location)
+        let success = engine.commitMove(buildingID: id, to: point)
+        if let node = buildingNodes[id] {
+            let finalPosition = success
+                ? GridMath.centerScenePosition(origin: point, footprint: node.footprint)
+                : (dragOriginalScenePosition ?? node.position)
+            node.endDragVisual(success: success, finalPosition: finalPosition)
+        }
+        Haptics.impact(success ? .medium : .light)
+        if !success { Haptics.notify(.error) }
+        finishDrag()
+    }
+
+    private func cancelLiveDrag() {
+        guard let id = draggedBuildingID else { return }
+        engine.cancelMovingBuilding(id: id)
+        if let node = buildingNodes[id] {
+            node.endDragVisual(success: false, finalPosition: dragOriginalScenePosition ?? node.position)
+        }
+        finishDrag()
+    }
+
+    private func finishDrag() {
+        draggedBuildingID = nil
+        dragOriginalScenePosition = nil
+        clearFootprintGhost()
     }
 
     // MARK: - Belt drawing
@@ -245,6 +400,10 @@ final class FactoryScene: SKScene {
         return buildingNodes[id]
     }
 
+    func playBeltUpgradeFlash(lineID: UUID) {
+        beltNodes[lineID]?.playUpgradeFlash()
+    }
+
     // MARK: - External gesture hooks (called by GameSceneContainer)
 
     func handlePinch(incrementalScale: CGFloat) {
@@ -252,13 +411,27 @@ final class FactoryScene: SKScene {
         cameraNode.setScale(max(0.6, min(2.5, newScale)))
     }
 
-    func handleLongPress(at location: CGPoint) {
+    func handleLongPressBegan(at location: CGPoint) {
         let point = GridMath.gridPoint(for: location)
         if let building = engine.state.building(at: point) {
-            engine.selectBuilding(id: building.id)
+            beginLiveDrag(buildingID: building.id, at: location)
         } else if engine.state.grid.isBuildable(at: point) {
             onRequestBuildMenu?(point)
         }
+    }
+
+    func handleLongPressChanged(at location: CGPoint) {
+        guard draggedBuildingID != nil else { return }
+        updateDragFollow(to: location)
+    }
+
+    func handleLongPressEnded(at location: CGPoint) {
+        guard draggedBuildingID != nil else { return }
+        endLiveDrag(at: location)
+    }
+
+    func handleLongPressCancelled() {
+        cancelLiveDrag()
     }
 }
 

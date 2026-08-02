@@ -16,8 +16,12 @@ struct BuildingInfoPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
-            recipeSummary
-            statsRow
+            if info.storageBreakdown != nil {
+                storageSection
+            } else {
+                recipeSummary
+                statsRow
+            }
             actionRow
         }
         .padding(14)
@@ -68,6 +72,54 @@ struct BuildingInfoPanel: View {
                 }
             }
             .font(.caption2)
+        }
+    }
+
+    @ViewBuilder
+    private var storageSection: some View {
+        if let breakdown = info.storageBreakdown {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Gesamt").font(.caption2).foregroundStyle(.white.opacity(0.6))
+                    Spacer()
+                    Text("\(NumberFormat.german(totalStored)) / \(NumberFormat.german(info.bufferCapacity))")
+                        .font(.caption.bold().monospacedDigit())
+                        .foregroundStyle(capacityColor)
+                }
+                ProgressView(value: capacityRatio).tint(capacityColor)
+
+                if breakdown.isEmpty {
+                    Text("Leer").font(.caption2).foregroundStyle(.white.opacity(0.5))
+                } else {
+                    ForEach(breakdown) { item in
+                        HStack(spacing: 4) {
+                            Image(systemName: item.resource.iconSystemName).foregroundStyle(item.resource.color)
+                            Text(item.resource.displayName).foregroundStyle(.white.opacity(0.85))
+                            Spacer()
+                            Text(NumberFormat.german(item.amount)).foregroundStyle(.white)
+                        }
+                        .font(.caption2)
+                    }
+                }
+
+                if let interval = info.storageOutputInterval {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.right.circle.fill").foregroundStyle(Palette.violet)
+                        Text(String(format: "Ausgabe: alle %.2fs", interval)).foregroundStyle(.white.opacity(0.7))
+                    }
+                    .font(.caption2)
+                }
+            }
+        }
+    }
+
+    private var totalStored: Int { info.storageBreakdown?.reduce(0) { $0 + $1.amount } ?? 0 }
+    private var capacityRatio: Double { info.bufferCapacity > 0 ? Double(totalStored) / Double(info.bufferCapacity) : 0 }
+    private var capacityColor: Color {
+        switch capacityRatio {
+        case ..<0.7: return Palette.blurple
+        case 0.7..<0.9: return Palette.lavaOrange
+        default: return Palette.demonRed
         }
     }
 

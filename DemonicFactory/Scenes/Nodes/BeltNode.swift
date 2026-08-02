@@ -15,6 +15,12 @@ final class BeltNode: SKNode {
     private var itemNodes: [UUID: ResourceItemNode] = [:]
     private let jamIndicator: SKShapeNode
     private var segmentNodes: [SKShapeNode] = []
+    private var arrowNodes: [SKSpriteNode] = []
+
+    private var isSelected = false
+    private var styledLevel: Int?
+    private var baseStrokeColor = Palette.violetUI.withAlphaComponent(0.6)
+    private var baseLineWidth: CGFloat = 1.5
 
     init(line: ConveyorLine) {
         lineID = line.id
@@ -33,6 +39,7 @@ final class BeltNode: SKNode {
         zPosition = 3
         drawSegments()
         addChild(jamIndicator)
+        setLevel(line.level)
     }
 
     required init?(coder aDecoder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -44,8 +51,6 @@ final class BeltNode: SKNode {
                 cornerRadius: 8
             )
             segment.fillColor = Palette.darkVioletUI.withAlphaComponent(0.55)
-            segment.strokeColor = Palette.violetUI.withAlphaComponent(0.6)
-            segment.lineWidth = 1.5
             segment.position = GridMath.scenePosition(for: point)
             segment.zPosition = 1
             addChild(segment)
@@ -59,14 +64,63 @@ final class BeltNode: SKNode {
                 arrow.alpha = 0.8
                 arrow.zPosition = 2
                 addChild(arrow)
+                arrowNodes.append(arrow)
             }
         }
     }
 
     func setSelected(_ selected: Bool) {
+        isSelected = selected
+        applySegmentStyle()
+    }
+
+    /// Level 1: dim, single-tone. By level 3 the stroke brightens and thickens;
+    /// level 5 shifts the tint from pure violet towards green, matching the
+    /// factory's "active production" color, and arrows pulse to read as fast.
+    func setLevel(_ level: Int) {
+        guard level != styledLevel else { return }
+        styledLevel = level
+
+        let t = Double(max(1, level) - 1) / 4.0 // 0...1 across levels 1-5
+        baseLineWidth = 1.5 + CGFloat(t) * 1.5
+        let mixedColor = Palette.violetUI.mixed(with: Palette.soulGreenUI, fraction: CGFloat(t) * 0.6)
+        baseStrokeColor = mixedColor.withAlphaComponent(0.55 + CGFloat(t) * 0.35)
+        applySegmentStyle()
+
+        for arrow in arrowNodes {
+            arrow.removeAction(forKey: "levelPulse")
+            arrow.color = mixedColor
+            arrow.colorBlendFactor = 1
+            if level >= 3 {
+                arrow.run(
+                    .repeatForever(.sequence([.fadeAlpha(to: 1.0, duration: 0.3), .fadeAlpha(to: 0.6, duration: 0.3)])),
+                    withKey: "levelPulse"
+                )
+            } else {
+                arrow.alpha = 0.8
+            }
+        }
+    }
+
+    private func applySegmentStyle() {
         for segment in segmentNodes {
-            segment.strokeColor = selected ? .white : Palette.violetUI.withAlphaComponent(0.6)
-            segment.lineWidth = selected ? 2.5 : 1.5
+            segment.strokeColor = isSelected ? .white : baseStrokeColor
+            segment.lineWidth = isSelected ? baseLineWidth + 1 : baseLineWidth
+        }
+    }
+
+    /// Short light-sweep + spark burst played once when the line is upgraded.
+    func playUpgradeFlash() {
+        for (index, segment) in segmentNodes.enumerated() {
+            let delay = Double(index) * 0.03
+            segment.run(.sequence([
+                .wait(forDuration: delay),
+                .group([
+                    .scale(to: 1.25, duration: 0.12),
+                    .sequence([.fadeAlpha(to: 0.4, duration: 0.06), .fadeAlpha(to: 1.0, duration: 0.18)])
+                ]),
+                .scale(to: 1.0, duration: 0.15)
+            ]))
         }
     }
 

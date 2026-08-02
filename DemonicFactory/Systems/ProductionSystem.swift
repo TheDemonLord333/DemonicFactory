@@ -13,6 +13,11 @@ import Foundation
 enum ProductionSystem {
     static func advance(state: GameState, deltaTime: TimeInterval) {
         for building in state.buildings {
+            guard !building.isBeingMoved else {
+                building.isActive = false
+                continue
+            }
+
             guard let recipe = RecipeDatabase.recipe(for: building.type) else {
                 building.isActive = false
                 continue

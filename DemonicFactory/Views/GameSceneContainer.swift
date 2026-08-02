@@ -49,13 +49,22 @@ struct GameSceneContainer: UIViewRepresentable {
         }
 
         @objc func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
-            guard recognizer.state == .began,
-                  let view = recognizer.view as? SKView,
-                  let scene
-            else { return }
+            guard let view = recognizer.view as? SKView, let scene else { return }
             let location = recognizer.location(in: view)
             let scenePoint = scene.convertPoint(fromView: location)
-            scene.handleLongPress(at: scenePoint)
+
+            switch recognizer.state {
+            case .began:
+                scene.handleLongPressBegan(at: scenePoint)
+            case .changed:
+                scene.handleLongPressChanged(at: scenePoint)
+            case .ended:
+                scene.handleLongPressEnded(at: scenePoint)
+            case .cancelled, .failed:
+                scene.handleLongPressCancelled()
+            default:
+                break
+            }
         }
     }
 }

@@ -22,8 +22,7 @@ final class ConveyorLine: Identifiable {
     var path: [GridPoint]
     var sourceBuildingID: UUID?
     var destinationBuildingID: UUID?
-    /// Tiles travelled per second.
-    var speed: Double
+    var level: Int
     var itemsInTransit: [BeltItem]
     /// True once an item reaches the end but the destination buffer is full.
     var isJammed: Bool
@@ -33,19 +32,25 @@ final class ConveyorLine: Identifiable {
         path: [GridPoint],
         sourceBuildingID: UUID? = nil,
         destinationBuildingID: UUID? = nil,
-        speed: Double = 1.5
+        level: Int = 1
     ) {
         self.id = id
         self.path = path
         self.sourceBuildingID = sourceBuildingID
         self.destinationBuildingID = destinationBuildingID
-        self.speed = speed
+        self.level = level
         self.itemsInTransit = []
         self.isJammed = false
     }
 
+    /// Tiles travelled per second — derived from level, never stored
+    /// separately, so it can't drift out of sync with an upgrade.
+    var speed: Double { BuildingLevelConfig.beltSpeed(level: level) }
+
     var length: Double { Double(max(path.count - 1, 1)) }
     var isFunctional: Bool { sourceBuildingID != nil && destinationBuildingID != nil }
+    var canUpgrade: Bool { level < BuildingLevelConfig.maxBeltLevel }
+    func upgradeCost() -> Int { BuildingLevelConfig.beltUpgradeCost(fromLevel: level) }
 
     func occupies(_ point: GridPoint) -> Bool { path.contains(point) }
 

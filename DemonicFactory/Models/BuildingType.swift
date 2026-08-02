@@ -104,18 +104,19 @@ enum BuildingType: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    var maxLevel: Int { 3 }
+    var maxLevel: Int { BuildingLevelConfig.maxBuildingLevel }
 
     /// Internal input/output buffer capacity per unit before the machine blocks.
+    /// Storage uses its own much larger table since it *is* the buffer.
     func bufferCapacity(level: Int) -> Int {
         switch self {
-        case .storage: return 60 + (level - 1) * 50
+        case .storage: return BuildingLevelConfig.storageCapacity(level: level)
         default: return 12 + (level - 1) * 6
         }
     }
 
     func upgradeCost(fromLevel level: Int) -> Int {
-        Int(Double(baseHellCoinCost) * pow(1.8, Double(level)))
+        BuildingLevelConfig.upgradeCost(baseCost: baseHellCoinCost, fromLevel: level)
     }
 
     /// Machines the player can already build at the very start of the game.

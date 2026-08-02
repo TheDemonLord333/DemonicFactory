@@ -12,6 +12,7 @@ import SpriteKit
 
 final class BuildingNode: SKNode {
     let buildingID: UUID
+    let footprint: (width: Int, height: Int)
 
     private let base: SKShapeNode
     private let glow: SKShapeNode
@@ -22,19 +23,25 @@ final class BuildingNode: SKNode {
     private let emitter: SKEmitterNode
     private let selectionRing: SKShapeNode
     private let progressBarWidth: CGFloat
+    private let capacityBadge: CapacityBadgeNode?
 
     init(building: FactoryBuilding) {
         buildingID = building.id
-        let size = GridMath.tileSize * 0.82
-        progressBarWidth = size * 0.8
+        footprint = building.type.footprint
+        let footSize = CGSize(
+            width: GridMath.tileSize * CGFloat(footprint.width) * 0.82,
+            height: GridMath.tileSize * CGFloat(footprint.height) * 0.82
+        )
+        let size = min(footSize.width, footSize.height)
+        progressBarWidth = footSize.width * 0.8
 
-        base = SKShapeNode(rectOf: CGSize(width: size, height: size), cornerRadius: 10)
+        base = SKShapeNode(rectOf: footSize, cornerRadius: 10)
         base.fillColor = Palette.anthraciteUI
         base.strokeColor = building.type.themeColorUI
         base.lineWidth = 2
         base.zPosition = 1
 
-        glow = SKShapeNode(rectOf: CGSize(width: size + 8, height: size + 8), cornerRadius: 13)
+        glow = SKShapeNode(rectOf: CGSize(width: footSize.width + 8, height: footSize.height + 8), cornerRadius: 13)
         glow.fillColor = .clear
         glow.strokeColor = building.type.themeColorUI
         glow.lineWidth = 3
@@ -42,7 +49,7 @@ final class BuildingNode: SKNode {
         glow.blendMode = .add
         glow.zPosition = 0
 
-        selectionRing = SKShapeNode(rectOf: CGSize(width: size + 14, height: size + 14), cornerRadius: 15)
+        selectionRing = SKShapeNode(rectOf: CGSize(width: footSize.width + 14, height: footSize.height + 14), cornerRadius: 15)
         selectionRing.strokeColor = .white
         selectionRing.lineWidth = 2
         selectionRing.fillColor = .clear
@@ -53,7 +60,7 @@ final class BuildingNode: SKNode {
         icon.zPosition = 3
 
         let barBackground = SKSpriteNode(color: Palette.voidBlackUI, size: CGSize(width: progressBarWidth, height: 5))
-        barBackground.position = CGPoint(x: 0, y: -size / 2 - 9)
+        barBackground.position = CGPoint(x: 0, y: -footSize.height / 2 - 9)
         barBackground.zPosition = 3
 
         progressFill = SKSpriteNode(color: Palette.soulGreenUI, size: CGSize(width: progressBarWidth, height: 5))
@@ -63,7 +70,7 @@ final class BuildingNode: SKNode {
 
         warningLabel = SKLabelNode(text: "⚠")
         warningLabel.fontSize = 15
-        warningLabel.position = CGPoint(x: size / 2 - 8, y: size / 2 - 8)
+        warningLabel.position = CGPoint(x: footSize.width / 2 - 8, y: footSize.height / 2 - 8)
         warningLabel.isHidden = true
         warningLabel.zPosition = 5
 
@@ -71,7 +78,7 @@ final class BuildingNode: SKNode {
         levelLabel.text = "Lv\(building.level)"
         levelLabel.fontSize = 10
         levelLabel.fontColor = .white
-        levelLabel.position = CGPoint(x: -size / 2 + 4, y: size / 2 - 13)
+        levelLabel.position = CGPoint(x: -footSize.width / 2 + 4, y: footSize.height / 2 - 13)
         levelLabel.horizontalAlignmentMode = .left
         levelLabel.zPosition = 3
 
@@ -92,8 +99,16 @@ final class BuildingNode: SKNode {
         emitter.position = CGPoint(x: 0, y: size * 0.08)
         emitter.zPosition = 4
 
+        if building.type == .storage {
+            let badge = CapacityBadgeNode()
+            badge.position = CGPoint(x: 0, y: footSize.height / 2 + 18)
+            capacityBadge = badge
+        } else {
+            capacityBadge = nil
+        }
+
         super.init()
-        position = GridMath.scenePosition(for: building.gridPosition)
+        position = GridMath.centerScenePosition(origin: building.gridPosition, footprint: footprint)
         zPosition = 10
 
         addChild(glow)
@@ -105,6 +120,7 @@ final class BuildingNode: SKNode {
         addChild(warningLabel)
         addChild(levelLabel)
         addChild(emitter)
+        if let capacityBadge { addChild(capacityBadge) }
 
         playPlacementAnimation()
     }
@@ -129,6 +145,41 @@ final class BuildingNode: SKNode {
         selectionRing.isHidden = !selected
     }
 
+    func applyZoomCompensation(cameraScale: CGFloat) {
+        capacityBadge?.applyZoomCompensation(cameraScale: cameraScale)
+    }
+
+    /// Picked up: scales up slightly, glows once, and floats above every
+    /// other building/belt node so it visibly "hovers" while dragged.
+    func beginDragVisual() {
+        removeAction(forKey: "dragReturn")
+        zPosition = 100
+        alpha = 0.85
+        run(.scale(to: 1.08, duration: 0.12))
+        glow.run(.sequence([.fadeAlpha(to: 0.8, duration: 0.1), .fadeAlpha(to: 0.3, duration: 0.3)]))
+    }
+
+    /// Called continuously while the finger moves; the node just follows —
+    /// no scene-graph churn beyond a position assignment.
+    func updateDragVisual(to point: CGPoint) {
+        position = point
+    }
+
+    /// Dropped: snaps to `finalPosition` (the new official spot on success, or
+    /// back to where it started on failure/cancel) with a matching flourish.
+    func endDragVisual(success: Bool, finalPosition: CGPoint) {
+        zPosition = 10
+        let move = SKAction.move(to: finalPosition, duration: success ? 0.15 : 0.25)
+        move.timingMode = .easeOut
+        let scale = SKAction.sequence([.scale(to: success ? 1.05 : 0.95, duration: 0.1), .scale(to: 1.0, duration: 0.15)])
+        run(.group([move, scale]), withKey: "dragReturn")
+        run(.fadeAlpha(to: 1.0, duration: 0.15))
+        glow.strokeColor = (success ? Palette.soulGreenUI : Palette.demonRedUI)
+        glow.run(.sequence([.fadeAlpha(to: success ? 0.9 : 0.7, duration: 0.08), .fadeAlpha(to: 0, duration: 0.35)])) {
+            [weak self] in self?.glow.strokeColor = self?.base.strokeColor ?? Palette.violetUI
+        }
+    }
+
     func update(with building: FactoryBuilding) {
         levelLabel.text = "Lv\(building.level)"
 
@@ -141,6 +192,7 @@ final class BuildingNode: SKNode {
             warningLabel.isHidden = ratio < 0.95
             emitter.particleBirthRate = 0
             if glow.alpha > 0.05 { glow.run(.fadeAlpha(to: 0, duration: 0.4)) }
+            capacityBadge?.update(current: building.totalInputStored, capacity: building.bufferCapacity)
             return
         }
 

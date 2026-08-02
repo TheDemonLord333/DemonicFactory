@@ -18,6 +18,16 @@ enum GridMath {
         )
     }
 
+    /// Scene-space center of a multi-tile footprint anchored at its bottom-left
+    /// tile `origin` — what a building's node should be positioned at.
+    static func centerScenePosition(origin: GridPoint, footprint: (width: Int, height: Int)) -> CGPoint {
+        let base = scenePosition(for: origin)
+        return CGPoint(
+            x: base.x + CGFloat(footprint.width - 1) * tileSize / 2,
+            y: base.y + CGFloat(footprint.height - 1) * tileSize / 2
+        )
+    }
+
     static func gridPoint(for scenePosition: CGPoint) -> GridPoint {
         GridPoint(
             x: Int(floor(scenePosition.x / tileSize)),

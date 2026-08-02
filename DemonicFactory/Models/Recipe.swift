@@ -29,18 +29,10 @@ struct Recipe: Identifiable {
     let experienceReward: Int
 
     func processingTime(level: Int) -> TimeInterval {
-        switch level {
-        case 2: return processingTime * 0.8
-        case 3: return processingTime * 0.65
-        default: return processingTime
-        }
+        processingTime * BuildingLevelConfig.machineProcessingTimeMultiplier(level: level)
     }
 
     func energyDraw(level: Int) -> Double {
-        switch level {
-        case 2: return energyDrawPerSecond * 0.9
-        case 3: return energyDrawPerSecond * 0.8
-        default: return energyDrawPerSecond
-        }
+        energyDrawPerSecond * BuildingLevelConfig.machineEnergyDrawMultiplier(level: level)
     }
 }
