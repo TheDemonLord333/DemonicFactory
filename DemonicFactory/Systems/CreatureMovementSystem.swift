@@ -7,6 +7,7 @@
 //  extension point once creatures need to route around dense machine clusters.
 //
 
+import Foundation
 import CoreGraphics
 
 enum CreatureMovementSystem {

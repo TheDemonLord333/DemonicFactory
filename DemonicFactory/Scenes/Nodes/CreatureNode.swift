@@ -7,7 +7,7 @@ import SpriteKit
 
 final class CreatureNode: SKNode {
     let creatureID: UUID
-    private let frame: SKShapeNode
+    private let rarityRing: SKShapeNode
 
     init(creature: Creature) {
         creatureID = creature.id
@@ -20,11 +20,11 @@ final class CreatureNode: SKNode {
         shadow.position = CGPoint(x: 0, y: -radius * 0.9)
         shadow.zPosition = 0
 
-        frame = SKShapeNode(circleOfRadius: radius)
-        frame.fillColor = Palette.anthraciteUI
-        frame.strokeColor = creature.rarity.frameColorUI
-        frame.lineWidth = 2.5
-        frame.zPosition = 1
+        rarityRing = SKShapeNode(circleOfRadius: radius)
+        rarityRing.fillColor = Palette.anthraciteUI
+        rarityRing.strokeColor = creature.rarity.frameColorUI
+        rarityRing.lineWidth = 2.5
+        rarityRing.zPosition = 1
 
         let icon = SKSpriteNode.symbol(creature.type.iconSystemName, pointSize: radius * 1.1, color: creature.rarity.frameColorUI)
         icon.zPosition = 2
@@ -33,7 +33,7 @@ final class CreatureNode: SKNode {
         position = creature.position
         zPosition = 20
         addChild(shadow)
-        addChild(frame)
+        addChild(rarityRing)
         addChild(icon)
 
         run(.repeatForever(.sequence([
@@ -42,7 +42,7 @@ final class CreatureNode: SKNode {
         ])), withKey: "idleBob")
 
         if creature.rarity.hasFlickeringParticles {
-            frame.run(.repeatForever(.sequence([
+            rarityRing.run(.repeatForever(.sequence([
                 .fadeAlpha(to: 0.4, duration: 0.15),
                 .fadeAlpha(to: 1.0, duration: 0.25)
             ])))

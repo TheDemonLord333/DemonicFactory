@@ -12,13 +12,9 @@ import SwiftUI
 import SwiftData
 
 struct GameRootView: View {
-    @StateObject private var viewModel: GameViewModel
+    @StateObject private var viewModel = GameViewModel()
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
-
-    init(viewModel: GameViewModel = GameViewModel()) {
-        _viewModel = StateObject(wrappedValue: viewModel)
-    }
 
     var body: some View {
         ZStack {

@@ -9,6 +9,7 @@
 //  this timer), and forwards user intents from SwiftUI back into the engine.
 //
 
+import Foundation
 import SwiftUI
 import Combine
 import SwiftData
@@ -103,8 +104,8 @@ final class GameViewModel: ObservableObject {
     let tutorialSteps: [TutorialStep] = GameViewModel.buildTutorialSteps()
 
     private var saveManager: SaveGameManager?
-    private var refreshTimer: Timer?
-    private var autosaveTimer: Timer?
+    private var refreshCancellable: AnyCancellable?
+    private var autosaveCancellable: AnyCancellable?
 
     init() {
         let engine = GameEngine()
@@ -122,18 +123,17 @@ final class GameViewModel: ObservableObject {
         startTimers()
     }
 
-    deinit {
-        refreshTimer?.invalidate()
-        autosaveTimer?.invalidate()
-    }
-
+    // Combine's Timer.publish keeps the callback a plain (non-@Sendable) closure
+    // that inherits this MainActor-isolated context, unlike Foundation's
+    // Timer(closure:) API — avoids Swift 6 strict-concurrency warnings.
     private func startTimers() {
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
-        }
-        autosaveTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.saveNow() }
-        }
+        refreshCancellable = Timer.publish(every: 0.1, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in self?.refresh() }
+
+        autosaveCancellable = Timer.publish(every: 30, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in self?.saveNow() }
     }
 
     // MARK: - Persistence
