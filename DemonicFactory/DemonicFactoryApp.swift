@@ -2,8 +2,6 @@
 //  DemonicFactoryApp.swift
 //  DemonicFactory
 //
-//  Created by David Martens on 31.07.26.
-//
 
 import SwiftUI
 import SwiftData
@@ -12,7 +10,7 @@ import SwiftData
 struct DemonicFactoryApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            GameSaveRecord.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
